@@ -5,19 +5,26 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 import matplotlib.font_manager as fm
+import matplotlib as mpl
 import shutil
 
-# フォント設定
+# フォント設定（サーバー環境用）
 server_font_path = "/tmp/ipaexg.ttf"
-local_font_path = "ipaexg.ttf"  # フォントファイルをアプリフォルダに同梱
 
+# ローカルのフォントファイルをサーバーにコピー
+local_font_path = "ipaexg.ttf"  # フォントファイルをアプリフォルダに同梱
 if not os.path.exists(server_font_path):
     shutil.copy(local_font_path, server_font_path)
 
-font_prop = fm.FontProperties(fname=server_font_path)
-plt.rc("font", family=font_prop.get_name())
+# フォントの設定
+if os.path.exists(server_font_path):
+    font_prop = fm.FontProperties(fname=server_font_path)
+    mpl.rcParams["font.family"] = font_prop.get_name()
+    plt.rc("font", family=font_prop.get_name())
+    st.write(f"✅ フォント設定: {mpl.rcParams['font.family']}")
+else:
+    st.error("❌ フォントファイルが見つかりません。")
 
-# タイトル
 st.title("相関分析 Web アプリ")
 
 # CSVのひな型を作成してダウンロード
@@ -37,8 +44,7 @@ st.sidebar.download_button(
     label="CSVひな型をダウンロード",
     data=sample_csv,
     file_name="sample_correlation.csv",
-    mime="text/csv"
-)
+    mime="text/csv")
 
 # CSVファイルのアップロード
 st.sidebar.header("データのアップロード")
@@ -59,6 +65,11 @@ if uploaded_file is not None:
         # ヒートマップの描画
         fig, ax = plt.subplots(figsize=(8, 6))
         sns.heatmap(correlation_matrix, annot=True, fmt='.2f', cmap='coolwarm', ax=ax)
+
+        # 軸ラベルの日本語設定
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontproperties=font_prop)
+        ax.set_yticklabels(ax.get_yticklabels(), fontproperties=font_prop)
+
         ax.set_title("相関行列", fontproperties=font_prop)
         st.pyplot(fig)
         plt.close(fig)
@@ -84,4 +95,3 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"❌ CSVの読み込み時にエラーが発生しました: {e}")
-
