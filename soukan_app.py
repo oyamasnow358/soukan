@@ -6,27 +6,23 @@ import matplotlib.pyplot as plt
 import os
 import matplotlib.font_manager as fm
 import matplotlib as mpl
+import shutil
 
-# フォント設定
-def load_font():
-    font_path = "C:\\Users\\taka\\OneDrive\\デスクトップ\\アプリ開発\\相関分析\\soukan\\ipaexg.ttf"
-    if os.path.exists(font_path):
-        font_prop = fm.FontProperties(fname=font_path)
-        mpl.rcParams["font.family"] = font_prop.get_name()
-        plt.rc("font", family=font_prop.get_name())
-        return font_prop.get_name()
-    return None
 
-font_name = load_font()
-if font_name:
-    st.write(f"✅ フォント設定: {font_name}")
-else:
-    st.error("❌ フォントファイルが見つかりません。")
+# サーバー環境用のフォントパス
+server_font_path = "/tmp/ipaexg.ttf"
+
+# ローカルのフォントパスをサーバーにコピー
+local_font_path = "ipaexg.ttf"  # フォントファイルをアプリフォルダに同梱
+if not os.path.exists(server_font_path):
+    shutil.copy(local_font_path, server_font_path)
+
 
 st.title("相関分析 Web アプリ")
-
+df = pd.read_csv(uploaded_file, encoding='utf-8', errors='replace')
 # CSVのひな型を作成してダウンロード
 st.sidebar.header("CSVひな型のダウンロード")
+
 def create_sample_csv():
     sample_data = {
         "変数1": np.random.randint(1, 100, 10),
