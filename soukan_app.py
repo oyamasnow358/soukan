@@ -76,22 +76,26 @@ if uploaded_file is not None:
 
         # 相関の説明
         st.write("### 相関の解釈")
-        explanation = ""
+        explanation = ""  # 説明文用の変数
+        processed_pairs = set()  # 処理済みの組み合わせを記録
 
         for col1 in correlation_matrix.columns:
-            for col2 in correlation_matrix.columns:
-                if col1 != col2:
-                    corr_value = correlation_matrix.loc[col1, col2]
-                    if abs(corr_value) >= 0.7:
-                        explanation += f"🔴 **{col1}** と **{col2}** は 強い相関 があります！（相関係数: {corr_value:.2f}）\n\n"
-                    elif abs(corr_value) >= 0.4:
-                        explanation += f"🟠 **{col1}** と **{col2}** は 中程度の相関 があります。（相関係数: {corr_value:.2f}）\n\n"
-                    elif abs(corr_value) >= 0.2:
-                        explanation += f"🟡 **{col1}** と **{col2}** は 弱い相関 があります。（相関係数: {corr_value:.2f}）\n\n"
-                    else:
-                        explanation += f"⚪ **{col1}** と **{col2}** は ほぼ関係がありません。（相関係数: {corr_value:.2f}）\n\n"
+           for col2 in correlation_matrix.columns:
+             if col1 != col2 and (col2, col1) not in processed_pairs:
+                corr_value = correlation_matrix.loc[col1, col2]
+                processed_pairs.add((col1, col2))  # 処理済みとして記録
+
+                if abs(corr_value) >= 0.7:
+                   explanation += f"🔴 **{col1}** と **{col2}** は 強い相関 があります！（相関係数: {corr_value:.2f}）\n"
+                elif abs(corr_value) >= 0.4:
+                   explanation += f"🟠 **{col1}** と **{col2}** は 中程度の相関 があります。（相関係数: {corr_value:.2f}）\n"
+                elif abs(corr_value) >= 0.2:
+                   explanation += f"🟡 **{col1}** と **{col2}** は 弱い相関 があります。（相関係数: {corr_value:.2f}）\n"
+                else:
+                   explanation += f"⚪ **{col1}** と **{col2}** は ほぼ関係がありません。（相関係数: {corr_value:.2f}）\n"
 
         st.markdown(explanation)
+
 
     except Exception as e:
         st.error(f"❌ CSVの読み込み時にエラーが発生しました: {e}")
