@@ -8,7 +8,7 @@ import matplotlib.font_manager as fm
 import matplotlib as mpl
 
 # フォント設定
-font_path = "C:\Users\taka\OneDrive\デスクトップ\アプリ開発\相関分析\soukan\ipaexg.ttf"
+font_path = "C:\\Users\\taka\\OneDrive\\デスクトップ\\アプリ開発\\相関分析\\soukan\\ipag.ttf"
 if os.path.exists(font_path):
     font_prop = fm.FontProperties(fname=font_path)
     mpl.rcParams["font.family"] = font_prop.get_name()
