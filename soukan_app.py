@@ -30,7 +30,7 @@ st.title("相関分析 Web アプリ")
 if "show_explanation" not in st.session_state:
            st.session_state.show_explanation = False
         # ボタンを押すたびにセッションステートを切り替える
-if st.button("初心者向け説明を表示/非表示"):
+if st.button("説明を表示/非表示"):
            st.session_state.show_explanation = not st.session_state.show_explanation
 
          # セッションステートに基づいて説明を表示
