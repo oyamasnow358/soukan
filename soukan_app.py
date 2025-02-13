@@ -46,7 +46,7 @@ uploaded_file = st.sidebar.file_uploader("CSVファイルをアップロード",
 
 if uploaded_file is not None:
     try:
-        df = pd.read_csv(uploaded_file, encoding='utf-8-sig', errors='replace')
+        df = pd.read_csv(uploaded_file, encoding='utf-8-sig', encoding_errors='replace')
         st.write("### アップロードされたデータ")
         st.dataframe(df.head())
 
@@ -84,3 +84,4 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"❌ CSVの読み込み時にエラーが発生しました: {e}")
+
