@@ -8,12 +8,18 @@ import matplotlib.font_manager as fm
 import matplotlib as mpl
 
 # フォント設定
-font_path = "C:\\Users\\taka\\OneDrive\\デスクトップ\\アプリ開発\\相関分析\\soukan\\ipaexg.ttf"
-if os.path.exists(font_path):
-    font_prop = fm.FontProperties(fname=font_path)
-    mpl.rcParams["font.family"] = font_prop.get_name()
-    plt.rc("font", family=font_prop.get_name())
-    st.write(f"✅ フォント設定: {mpl.rcParams['font.family']}")
+def load_font():
+    font_path = "C:\\Users\\taka\\OneDrive\\デスクトップ\\アプリ開発\\相関分析\\soukan\\ipaexg.ttf"
+    if os.path.exists(font_path):
+        font_prop = fm.FontProperties(fname=font_path)
+        mpl.rcParams["font.family"] = font_prop.get_name()
+        plt.rc("font", family=font_prop.get_name())
+        return font_prop.get_name()
+    return None
+
+font_name = load_font()
+if font_name:
+    st.write(f"✅ フォント設定: {font_name}")
 else:
     st.error("❌ フォントファイルが見つかりません。")
 
@@ -28,7 +34,7 @@ def create_sample_csv():
         "変数3": np.random.randint(1, 100, 10)
     }
     sample_df = pd.DataFrame(sample_data)
-    return sample_df.to_csv(index=False).encode('utf-8')
+    return sample_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
 
 sample_csv = create_sample_csv()
 st.sidebar.download_button(
@@ -42,7 +48,7 @@ st.sidebar.header("データのアップロード")
 uploaded_file = st.sidebar.file_uploader("CSVファイルをアップロード", type=["csv"])
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+    df = pd.read_csv(uploaded_file, encoding='utf-8-sig', errors='replace')
     st.write("### アップロードされたデータ")
     st.dataframe(df.head())
 
@@ -55,7 +61,10 @@ if uploaded_file is not None:
     # ヒートマップの描画
     fig, ax = plt.subplots(figsize=(8, 6))
     sns.heatmap(correlation_matrix, annot=True, fmt='.2f', cmap='coolwarm', ax=ax)
-    ax.set_title("相関行列", fontproperties=font_prop)
+    if font_name:
+        ax.set_title("相関行列", fontproperties=fm.FontProperties(fname=font_path))
+    else:
+        ax.set_title("相関行列")
     st.pyplot(fig)
     plt.close(fig)
 
