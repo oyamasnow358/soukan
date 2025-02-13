@@ -35,7 +35,7 @@ st.sidebar.download_button(
     label="CSVひな型をダウンロード",
     data=sample_csv,
     file_name="sample_correlation.csv",
-    mime="text/csv"")
+    mime="text/csv")
 
 # CSVファイルのアップロード
 st.sidebar.header("データのアップロード")
