@@ -97,11 +97,11 @@ st.sidebar.download_button(
 
 # CSVファイルのアップロード
 st.sidebar.header("データのアップロード")
-uploaded_file = st.sidebar.file_uploader("CSVファイルをアップロード")
+uploaded_file = st.sidebar.file_uploader("CSVファイルをアップロード", type=["csv"])
 
 if uploaded_file is not None:
     try:
-        df = pd.read_csv(uploaded_file, encoding="utf-8")
+        df = pd.read_csv(uploaded_file, encoding='utf-8-sig', encoding_errors='replace')
         st.write("### アップロードされたデータ")
         st.dataframe(df.head())
 
