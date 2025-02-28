@@ -101,7 +101,7 @@ uploaded_file = st.sidebar.file_uploader("CSVファイルをアップロード")
 
 if uploaded_file is not None:
     try:
-        df = pd.read_csv(uploaded_file, encoding='utf-8-sig', encoding_errors='replace')
+        df = pd.read_csv(uploaded_file, encoding="utf-8")
         st.write("### アップロードされたデータ")
         st.dataframe(df.head())
 
