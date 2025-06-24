@@ -80,6 +80,8 @@ def create_csv_template():
 
 # --- 4. 分析ロジック関数 ---
 
+### 修正箇所 ###
+# pearsonrの戻り値を確実にスカラに変換する処理を追加
 def run_correlation_analysis(df):
     """相関分析を実行し、相関行列とp値行列を計算する"""
     df_corr = pd.DataFrame(index=df.columns, columns=df.columns, dtype=float)
@@ -88,10 +90,20 @@ def run_correlation_analysis(df):
     for col1 in df.columns:
         for col2 in df.columns:
             valid_data = df[[col1, col2]].dropna()
+            
             if len(valid_data) < 3:
                 corr, p_value = np.nan, np.nan
             else:
-                corr, p_value = stats.pearsonr(valid_data[col1], valid_data[col2])
+                try:
+                    # pearsonrの計算
+                    corr, p_value = stats.pearsonr(valid_data[col1], valid_data[col2])
+                    
+                    # 戻り値が配列の場合に備え、スカラ値に変換する
+                    corr = float(corr)
+                    p_value = float(p_value)
+
+                except (ValueError, TypeError): # 計算不能なデータの場合
+                    corr, p_value = np.nan, np.nan
             
             df_corr.loc[col1, col2] = corr
             df_p_values.loc[col1, col2] = p_value
@@ -110,7 +122,8 @@ def display_analysis_results(df_selected, corr_matrix, p_value_matrix):
     with tab1:
         st.subheader("相関ヒートマップ (p値付き)")
         
-        annot = corr_matrix.applymap('{:.2f}'.format).astype(str)
+        # applymapを推奨されるmapに変更
+        annot = corr_matrix.map('{:.2f}'.format).astype(str)
         annot[(p_value_matrix < 0.05) & (p_value_matrix >= 0.01)] += '*'
         annot[p_value_matrix < 0.01] += '**'
         
@@ -132,6 +145,7 @@ def display_analysis_results(df_selected, corr_matrix, p_value_matrix):
             st.warning("⚠️ 変数の数が10を超えているため、表示が遅くなる可能性があります。")
         
         with st.spinner("グラフを描画中..."):
+            # dropna()を追加して欠損値がある場合のKDEエラーを回避
             fig = sns.pairplot(df_selected.dropna(), diag_kind='kde')
             st.pyplot(fig)
         st.info("各変数ペアの関係性を散布図で可視化したものです。右肩上がりの傾向なら正の相関、右肩下がりなら負の相関があると考えられます。")
@@ -140,21 +154,11 @@ def display_analysis_results(df_selected, corr_matrix, p_value_matrix):
     with tab3:
         st.subheader("相関の強い組み合わせ")
         
-        ### 修正箇所 ###
-        # 相関行列を整形してリスト化するロジックを修正
         summary = corr_matrix.stack().reset_index()
         summary.columns = ['変数1', '変数2', '相関係数']
-        
-        # 自己相関 (変数1と変数2が同じ) を除外
         summary = summary[summary['変数1'] != summary['変数2']].copy()
-        
-        # 重複ペア (例: A-B と B-A) を除外するためのキーを作成
         summary['pair_key'] = summary.apply(lambda row: tuple(sorted((row['変数1'], row['変数2']))), axis=1)
-        
-        # 重複を削除
         summary = summary.drop_duplicates(subset='pair_key')
-        
-        # 絶対値でソート
         summary['abs_corr'] = summary['相関係数'].abs()
         summary = summary.sort_values(by='abs_corr', ascending=False).drop(columns=['pair_key', 'abs_corr'])
         
@@ -200,6 +204,8 @@ def main():
             
             if df_numeric.empty or len(df_numeric.columns) < 2:
                 st.error("❌ 2列以上の数値データが見つかりませんでした。分析には数値データが必要です。")
+                if 'analysis_results' in st.session_state:
+                    del st.session_state['analysis_results']
                 return
 
             st.success(f"✅ ファイル「{uploaded_file.name}」を読み込みました。数値型の {len(df_numeric.columns)} 変数が検出されました。")
