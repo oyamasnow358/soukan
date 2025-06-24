@@ -55,7 +55,7 @@ def show_app_explanation():
 
         #### 特別支援教育での活用例
         - **得意・不得意の発見**: `視覚記憶`と`書字能力`の相関を調べ、支援の方向性を探る。
-        - **支援効果の検証**: `音読練習の時間`と`読字スコア`の相関を分析し、練習の効果を測る。
+        - **支援効果の検証**: `音読練習の時間`と`読字スコア`の分析をし、練習の効果を測る。
         """)
 
 def create_csv_template():
@@ -68,7 +68,6 @@ def create_csv_template():
         '睡眠時間(時間)': [7.5, 8.0, 7.0, 7.2, 8.5]
     })
     
-    # コメント付きのCSV文字列を生成
     csv_string = "# これは相関分析用のデータテンプレートです。\n# 自身のデータに書き換えてお使いください。\n" + template_df.to_csv(index=False, encoding='utf-8-sig')
     
     st.download_button(
@@ -83,14 +82,13 @@ def create_csv_template():
 
 def run_correlation_analysis(df):
     """相関分析を実行し、相関行列とp値行列を計算する"""
-    df_corr = pd.DataFrame()
-    df_p_values = pd.DataFrame()
+    df_corr = pd.DataFrame(index=df.columns, columns=df.columns, dtype=float)
+    df_p_values = pd.DataFrame(index=df.columns, columns=df.columns, dtype=float)
     
     for col1 in df.columns:
         for col2 in df.columns:
-            # 欠損値を除外して計算
             valid_data = df[[col1, col2]].dropna()
-            if len(valid_data) < 3: # データが少なすぎる場合は計算しない
+            if len(valid_data) < 3:
                 corr, p_value = np.nan, np.nan
             else:
                 corr, p_value = stats.pearsonr(valid_data[col1], valid_data[col2])
@@ -112,8 +110,7 @@ def display_analysis_results(df_selected, corr_matrix, p_value_matrix):
     with tab1:
         st.subheader("相関ヒートマップ (p値付き)")
         
-        # p値に基づいてアノテーションを作成 (例: 0.85*, 0.92**)
-        annot = corr_matrix.applymap('{:.2f}'.format)
+        annot = corr_matrix.applymap('{:.2f}'.format).astype(str)
         annot[(p_value_matrix < 0.05) & (p_value_matrix >= 0.01)] += '*'
         annot[p_value_matrix < 0.01] += '**'
         
@@ -132,31 +129,39 @@ def display_analysis_results(df_selected, corr_matrix, p_value_matrix):
     with tab2:
         st.subheader("散布図マトリックス")
         if len(df_selected.columns) > 10:
-            st.warning("変数の数が10を超えているため、表示が遅くなる可能性があります。")
+            st.warning("⚠️ 変数の数が10を超えているため、表示が遅くなる可能性があります。")
         
         with st.spinner("グラフを描画中..."):
-            fig = sns.pairplot(df_selected, diag_kind='kde')
+            fig = sns.pairplot(df_selected.dropna(), diag_kind='kde')
             st.pyplot(fig)
         st.info("各変数ペアの関係性を散布図で可視化したものです。右肩上がりの傾向なら正の相関、右肩下がりなら負の相関があると考えられます。")
 
     # Tab3: 相関の要約
     with tab3:
         st.subheader("相関の強い組み合わせ")
-        # 相関行列を整形してリスト化
-        summary = corr_matrix.unstack().reset_index()
-        summary.columns = ['変数1', '変数2', '相関係数']
-        # 自己相関 (相関係数=1) と重複ペアを除外
-        summary = summary[summary['相関係数'] < 1.0].copy()
-        summary['abs_corr'] = summary['相関係数'].abs()
-        # 重複を削除 (A-B と B-A)
-        summary = summary[summary.apply(lambda row: tuple(sorted((row['変数1'], row['変数2']))) not in getattr(summary, '_processed_pairs', set()), axis=1)]
-        summary._processed_pairs = {tuple(sorted((r['変数1'], r['変数2']))) for i, r in summary.iterrows()}
         
-        # 強い順にソートして表示
-        summary = summary.sort_values(by='abs_corr', ascending=False).drop(columns='abs_corr')
+        ### 修正箇所 ###
+        # 相関行列を整形してリスト化するロジックを修正
+        summary = corr_matrix.stack().reset_index()
+        summary.columns = ['変数1', '変数2', '相関係数']
+        
+        # 自己相関 (変数1と変数2が同じ) を除外
+        summary = summary[summary['変数1'] != summary['変数2']].copy()
+        
+        # 重複ペア (例: A-B と B-A) を除外するためのキーを作成
+        summary['pair_key'] = summary.apply(lambda row: tuple(sorted((row['変数1'], row['変数2']))), axis=1)
+        
+        # 重複を削除
+        summary = summary.drop_duplicates(subset='pair_key')
+        
+        # 絶対値でソート
+        summary['abs_corr'] = summary['相関係数'].abs()
+        summary = summary.sort_values(by='abs_corr', ascending=False).drop(columns=['pair_key', 'abs_corr'])
+        
         st.dataframe(summary.style.format({'相関係数': '{:.3f}'})
                                 .background_gradient(cmap='coolwarm', subset=['相関係数'], vmin=-1, vmax=1),
-                     use_container_width=True)
+                     use_container_width=True,
+                     hide_index=True)
 
     # Tab4: 使用データ
     with tab4:
@@ -191,8 +196,6 @@ def main():
     if uploaded_file:
         try:
             df = pd.read_csv(uploaded_file, comment='#', encoding='utf-8-sig')
-            
-            # 数値型の列のみを抽出
             df_numeric = df.select_dtypes(include=np.number)
             
             if df_numeric.empty or len(df_numeric.columns) < 2:
@@ -203,10 +206,11 @@ def main():
 
             with st.sidebar:
                 st.markdown("#### 3. 分析対象の変数を選択")
+                default_vars = df_numeric.columns.tolist()
                 selected_vars = st.multiselect(
                     "変数を選択（2つ以上）",
                     options=df_numeric.columns.tolist(),
-                    default=df_numeric.columns.tolist()
+                    default=default_vars
                 )
                 
                 run_button = st.button("分析を実行", type="primary", use_container_width=True)
@@ -218,7 +222,6 @@ def main():
                     df_selected = df_numeric[selected_vars]
                     with st.spinner("相関を計算中..."):
                         corr_matrix, p_value_matrix = run_correlation_analysis(df_selected)
-                        # 結果をセッションステートに保存
                         st.session_state['analysis_results'] = {
                             "df_selected": df_selected,
                             "corr_matrix": corr_matrix,
@@ -230,7 +233,6 @@ def main():
             if 'analysis_results' in st.session_state:
                 del st.session_state['analysis_results']
 
-    # 保存された結果があれば表示
     if 'analysis_results' in st.session_state:
         results = st.session_state['analysis_results']
         display_analysis_results(results['df_selected'], results['corr_matrix'], results['p_value_matrix'])
