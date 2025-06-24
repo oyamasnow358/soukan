@@ -5,146 +5,235 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 import matplotlib.font_manager as fm
-import matplotlib as mpl
-import shutil
+from scipy import stats # p値の計算に必要
 
-# フォント設定（サーバー環境用）
-server_font_path = "/tmp/ipaexg.ttf"
+# --- 1. 初期設定 ---
 
-# ローカルのフォントファイルをサーバーにコピー
-local_font_path = "ipaexg.ttf"  # フォントファイルをアプリフォルダに同梱
-if not os.path.exists(server_font_path):
-    shutil.copy(local_font_path, server_font_path)
+# Streamlitページの基本設定
+st.set_page_config(
+    page_title="相関分析 Webアプリ",
+    page_icon="🔗",
+    layout="wide"
+)
 
-# フォントの設定
-if os.path.exists(server_font_path):
-    font_prop = fm.FontProperties(fname=server_font_path)
-    mpl.rcParams["font.family"] = font_prop.get_name()
-    plt.rc("font", family=font_prop.get_name())
-    st.write(f"✅ フォント設定: {mpl.rcParams['font.family']}")
-else:
-    st.error("❌ フォントファイルが見つかりません。")
+# --- 2. フォント設定 ---
 
-st.title("相関分析 Web アプリ")
-# 初心者向け説明の表示切り替え
-if "show_explanation" not in st.session_state:
-           st.session_state.show_explanation = False
-        # ボタンを押すたびにセッションステートを切り替える
-if st.button("説明を表示/非表示"):
-           st.session_state.show_explanation = not st.session_state.show_explanation
-
-         # セッションステートに基づいて説明を表示
-if st.session_state.show_explanation:
-           st.markdown("""
-           ### **相関分析とは？**
+def setup_japanese_font():
+    """
+    Matplotlib/Seabornで日本語を表示するためのフォントを設定します。
+    IPAexゴシックフォントファイル（ipaexg.ttf）が同じディレクトリにあることを想定しています。
+    """
+    font_path = "ipaexg.ttf"
     
-            - **p値の意味**    
-                       
-             相関分析（そうかんぶんせき）とは、2つのデータの関係がどれくらい強いかを調べる方法です。簡単に言うと、「Aが変わるとBも変わる？」という関係性を数値で表します。
+    if os.path.exists(font_path):
+        fm.fontManager.addfont(font_path)
+        font_prop = fm.FontProperties(fname=font_path)
+        plt.rcParams['font.family'] = font_prop.get_name()
+        plt.rcParams['axes.unicode_minus'] = False
+        sns.set_theme(style='whitegrid', font=font_prop.get_name())
+    else:
+        st.sidebar.warning("⚠️ 日本語フォントファイル（ipaexg.ttf）が見つかりません。グラフが文字化けします。")
 
-             相関分析は、子どもの発達や支援方法の改善にも役立ちます。例えば、次のような場面で使えます。  
-                       
-          ① 言語理解と社会性の関係
+# --- 3. UIコンポーネント関数 ---
 
-            子どもの言語理解のレベルと友達との関わりの回数に関係があるか調べる。
-           「言語理解のスコアが高い子ほど、友達とよく遊ぶ」という結果なら、言語支援が社会性の向上にも影響すると考えられる。
-
-          ② 書字能力と視覚記憶の関係
-
-            ひらがなを書く力（書字）と、目で見た情報を記憶する力（視覚記憶）の関係を分析する。
-            相関が強ければ、視覚記憶のトレーニングをすることで書字能力が向上する可能性がある。
-
-          ③ 落ち着きと学習の関係
-
-            子どもが授業中に座っていられる時間と、学習の理解度（テストの点数）に関係があるか調べる。
-           「落ち着いて座れる子の方が学習の理解が進んでいる」という結果なら、座る時間を伸ばすための支援が学習にも良い影響を与えると分かる。
-
-           - ### **相関の強さを表す数値**
-
-             相関分析では、「相関係数（そうかんけいすう）」 という数値（-1～1の間）を使って関係の強さを表します。
-             相関係数	関係の強さ	例
-             ＋1.0 に近い	強い正の相関（Aが増えるとBも増える）	言語理解が高い子ほど友達と多く遊ぶ
-             0 に近い	相関なし（関係がない）	好きな色と学習成績
-             −1.0 に近い	強い負の相関（Aが増えるとBは減る）	スマホの使用時間が増えると睡眠時間が減る
+def show_app_explanation():
+    """初心者向けの相関分析の説明を表示する"""
+    with st.expander("🔍 相関分析とは？（クリックで表示）", expanded=False):
+        st.markdown("""
+        ### **相関分析って、なに？**
+        2つのデータの「関係の強さ」を調べる分析手法です。「片方が増えるともう片方も増える（または減る）」といった関係性を**相関係数**という-1から1の間の数値で表します。
         
-           - ### **特別支援教育での活用ポイント**
+        #### 相関係数の見方
+        - **+1.0 に近い (正の相関)**: 片方が増えると、もう片方も増える傾向が強い。（例: `勉強時間`と`テストの点数`）
+        - **-1.0 に近い (負の相関)**: 片方が増えると、もう片方は減る傾向が強い。（例: `スマホの使用時間`と`睡眠時間`）
+        - **0 に近い (無相関)**: 2つのデータにほとんど関係がない。
 
-            子どもの得意・不得意を知る
-             → 例えば、「視覚記憶が苦手な子は、聞いて学ぶ方が得意かも？」と支援の方向を決める。
-            どんな支援が効果的か考える
-             → 「発語の少ない子には、ジェスチャーを使った支援が有効か？」などをデータで確認。
-            支援の効果を測る
-             → 例えば、「音読の練習を増やしたら、読字スコアが上がるか？」を分析。""")
+        #### p値 (有意確率) の見方
+        このアプリのヒートマップでは、相関係数にアスタリスク(`*`)が付くことがあります。
+        - `*` **p < 0.05**: この相関は「統計的に意味がある（有意である）」可能性が高いです。偶然そうなったとは考えにくい、ということです。
+        - `**` **p < 0.01**: この相関は「統計的に強く意味がある」可能性が非常に高いです。
 
-# CSVのひな型を作成してダウンロード
-st.sidebar.header("CSVひな型のダウンロード")
+        #### 特別支援教育での活用例
+        - **得意・不得意の発見**: `視覚記憶`と`書字能力`の相関を調べ、支援の方向性を探る。
+        - **支援効果の検証**: `音読練習の時間`と`読字スコア`の相関を分析し、練習の効果を測る。
+        """)
 
-def create_sample_csv():
-    sample_data = {
-        "変数1": np.random.randint(1, 100, 10),
-        "変数2": np.random.randint(1, 100, 10),
-        "変数3": np.random.randint(1, 100, 10)
-    }
-    sample_df = pd.DataFrame(sample_data)
-    return sample_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+def create_csv_template():
+    """分析用のCSVテンプレートを作成し、ダウンロードボタンを設置する"""
+    st.markdown("#### 1. データを用意する")
+    template_df = pd.DataFrame({
+        '国語の点数': [80, 65, 92, 75, 58],
+        '算数の点数': [75, 70, 88, 78, 62],
+        '勉強時間(分)': [120, 90, 150, 100, 70],
+        '睡眠時間(時間)': [7.5, 8.0, 7.0, 7.2, 8.5]
+    })
+    
+    # コメント付きのCSV文字列を生成
+    csv_string = "# これは相関分析用のデータテンプレートです。\n# 自身のデータに書き換えてお使いください。\n" + template_df.to_csv(index=False, encoding='utf-8-sig')
+    
+    st.download_button(
+        label="📥 CSVテンプレートをダウンロード",
+        data=csv_string.encode('utf-8-sig'),
+        file_name="correlation_template.csv",
+        mime="text/csv",
+        help="分析に使用するデータ形式のサンプルです。"
+    )
 
-sample_csv = create_sample_csv()
-st.sidebar.download_button(
-    label="CSVひな型をダウンロード",
-    data=sample_csv,
-    file_name="sample_correlation.csv",
-    mime="text/csv")
+# --- 4. 分析ロジック関数 ---
 
-# CSVファイルのアップロード
-st.sidebar.header("データのアップロード")
-uploaded_file = st.sidebar.file_uploader("CSVファイルをアップロード", type=["csv"])
+def run_correlation_analysis(df):
+    """相関分析を実行し、相関行列とp値行列を計算する"""
+    df_corr = pd.DataFrame()
+    df_p_values = pd.DataFrame()
+    
+    for col1 in df.columns:
+        for col2 in df.columns:
+            # 欠損値を除外して計算
+            valid_data = df[[col1, col2]].dropna()
+            if len(valid_data) < 3: # データが少なすぎる場合は計算しない
+                corr, p_value = np.nan, np.nan
+            else:
+                corr, p_value = stats.pearsonr(valid_data[col1], valid_data[col2])
+            
+            df_corr.loc[col1, col2] = corr
+            df_p_values.loc[col1, col2] = p_value
+            
+    return df_corr, df_p_values
 
-if uploaded_file is not None:
-    try:
-        df = pd.read_csv(uploaded_file, encoding='utf-8-sig', encoding_errors='replace')
-        st.write("### アップロードされたデータ")
-        st.dataframe(df.head())
+# --- 5. 結果表示関数 ---
 
-        # 相関係数の計算
-        correlation_matrix = df.corr()
+def display_analysis_results(df_selected, corr_matrix, p_value_matrix):
+    """分析結果をタブ形式で表示する"""
+    st.header("🔗 相関分析の結果", divider="rainbow")
+
+    tab1, tab2, tab3, tab4 = st.tabs(["相関ヒートマップ", "散布図マトリックス", "相関の要約", "使用データ"])
+
+    # Tab1: 相関ヒートマップ
+    with tab1:
+        st.subheader("相関ヒートマップ (p値付き)")
         
-        st.write("### 変数間の相関係数")
-        st.dataframe(correlation_matrix)
-
-        # ヒートマップの描画
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.heatmap(correlation_matrix, annot=True, fmt='.2f', cmap='coolwarm', ax=ax)
-
-        # 軸ラベルの日本語設定
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontproperties=font_prop)
-        ax.set_yticklabels(ax.get_yticklabels(), fontproperties=font_prop)
-
-        ax.set_title("相関行列", fontproperties=font_prop)
+        # p値に基づいてアノテーションを作成 (例: 0.85*, 0.92**)
+        annot = corr_matrix.applymap('{:.2f}'.format)
+        annot[(p_value_matrix < 0.05) & (p_value_matrix >= 0.01)] += '*'
+        annot[p_value_matrix < 0.01] += '**'
+        
+        fig, ax = plt.subplots(figsize=(max(8, len(df_selected.columns)), max(6, len(df_selected.columns))))
+        sns.heatmap(corr_matrix, annot=annot, fmt='s', cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
+        ax.set_title("相関ヒートマップ")
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
         st.pyplot(fig)
-        plt.close(fig)
+        st.markdown("""
+        - **色の意味**: 赤色が濃いほど「強い正の相関」、青色が濃いほど「強い負の相関」を示します。
+        - **記号の意味**: `*` はp値が0.05未満、`**` はp値が0.01未満であることを示し、統計的に意味のある相関である可能性が高いことを表します。
+        """)
 
-        # 相関の説明
-        st.write("### 相関の解釈")
-        explanation = ""  # 説明文用の変数
-        processed_pairs = set()  # 処理済みの組み合わせを記録
+    # Tab2: 散布図マトリックス
+    with tab2:
+        st.subheader("散布図マトリックス")
+        if len(df_selected.columns) > 10:
+            st.warning("変数の数が10を超えているため、表示が遅くなる可能性があります。")
+        
+        with st.spinner("グラフを描画中..."):
+            fig = sns.pairplot(df_selected, diag_kind='kde')
+            st.pyplot(fig)
+        st.info("各変数ペアの関係性を散布図で可視化したものです。右肩上がりの傾向なら正の相関、右肩下がりなら負の相関があると考えられます。")
 
-        for col1 in correlation_matrix.columns:
-           for col2 in correlation_matrix.columns:
-             if col1 != col2 and (col2, col1) not in processed_pairs:
-                corr_value = correlation_matrix.loc[col1, col2]
-                processed_pairs.add((col1, col2))  # 処理済みとして記録
+    # Tab3: 相関の要約
+    with tab3:
+        st.subheader("相関の強い組み合わせ")
+        # 相関行列を整形してリスト化
+        summary = corr_matrix.unstack().reset_index()
+        summary.columns = ['変数1', '変数2', '相関係数']
+        # 自己相関 (相関係数=1) と重複ペアを除外
+        summary = summary[summary['相関係数'] < 1.0].copy()
+        summary['abs_corr'] = summary['相関係数'].abs()
+        # 重複を削除 (A-B と B-A)
+        summary = summary[summary.apply(lambda row: tuple(sorted((row['変数1'], row['変数2']))) not in getattr(summary, '_processed_pairs', set()), axis=1)]
+        summary._processed_pairs = {tuple(sorted((r['変数1'], r['変数2']))) for i, r in summary.iterrows()}
+        
+        # 強い順にソートして表示
+        summary = summary.sort_values(by='abs_corr', ascending=False).drop(columns='abs_corr')
+        st.dataframe(summary.style.format({'相関係数': '{:.3f}'})
+                                .background_gradient(cmap='coolwarm', subset=['相関係数'], vmin=-1, vmax=1),
+                     use_container_width=True)
 
-                if abs(corr_value) >= 0.7:
-                   explanation += f"🔴 **{col1}** と **{col2}** は 強い相関 があります！（相関係数: {corr_value:.2f}）\n\n"
-                elif abs(corr_value) >= 0.4:
-                   explanation += f"🟠 **{col1}** と **{col2}** は 中程度の相関 があります。（相関係数: {corr_value:.2f}）\n\n"
-                elif abs(corr_value) >= 0.2:
-                   explanation += f"🟡 **{col1}** と **{col2}** は 弱い相関 があります。（相関係数: {corr_value:.2f}）\n\n"
+    # Tab4: 使用データ
+    with tab4:
+        st.subheader("分析に使用したデータ")
+        st.dataframe(df_selected)
+
+# --- 6. メイン実行部 ---
+
+def main():
+    # 1. 初期設定
+    setup_japanese_font()
+
+    # 2. アプリのタイトルと説明
+    st.title("🔗 相関分析 Webアプリ")
+    st.write("アップロードしたデータの変数間の相関を、ヒートマップや散布図で分かりやすく可視化します。")
+    show_app_explanation()
+    st.markdown("---")
+
+    # 3. サイドバーの設定
+    with st.sidebar:
+        st.header("⚙️ 設定パネル")
+        create_csv_template()
+
+        st.markdown("#### 2. ファイルをアップロード")
+        uploaded_file = st.file_uploader(
+            "CSVファイルをここにドラッグ＆ドロップ",
+            type=["csv"],
+            help="ヘッダー行を含む数値データで構成されたCSVファイルを選択してください。"
+        )
+    
+    # ファイルがアップロードされた後の処理
+    if uploaded_file:
+        try:
+            df = pd.read_csv(uploaded_file, comment='#', encoding='utf-8-sig')
+            
+            # 数値型の列のみを抽出
+            df_numeric = df.select_dtypes(include=np.number)
+            
+            if df_numeric.empty or len(df_numeric.columns) < 2:
+                st.error("❌ 2列以上の数値データが見つかりませんでした。分析には数値データが必要です。")
+                return
+
+            st.success(f"✅ ファイル「{uploaded_file.name}」を読み込みました。数値型の {len(df_numeric.columns)} 変数が検出されました。")
+
+            with st.sidebar:
+                st.markdown("#### 3. 分析対象の変数を選択")
+                selected_vars = st.multiselect(
+                    "変数を選択（2つ以上）",
+                    options=df_numeric.columns.tolist(),
+                    default=df_numeric.columns.tolist()
+                )
+                
+                run_button = st.button("分析を実行", type="primary", use_container_width=True)
+
+            if run_button:
+                if len(selected_vars) < 2:
+                    st.warning("⚠️ 分析するには、変数を2つ以上選択してください。")
                 else:
-                   explanation += f"⚪ **{col1}** と **{col2}** は ほぼ関係がありません。（相関係数: {corr_value:.2f}）\n\n"
+                    df_selected = df_numeric[selected_vars]
+                    with st.spinner("相関を計算中..."):
+                        corr_matrix, p_value_matrix = run_correlation_analysis(df_selected)
+                        # 結果をセッションステートに保存
+                        st.session_state['analysis_results'] = {
+                            "df_selected": df_selected,
+                            "corr_matrix": corr_matrix,
+                            "p_value_matrix": p_value_matrix
+                        }
+        
+        except Exception as e:
+            st.error(f"❌ ファイルの処理中にエラーが発生しました: {e}")
+            if 'analysis_results' in st.session_state:
+                del st.session_state['analysis_results']
 
-        st.markdown(explanation)
+    # 保存された結果があれば表示
+    if 'analysis_results' in st.session_state:
+        results = st.session_state['analysis_results']
+        display_analysis_results(results['df_selected'], results['corr_matrix'], results['p_value_matrix'])
 
-
-    except Exception as e:
-        st.error(f"❌ CSVの読み込み時にエラーが発生しました: {e}")
+if __name__ == "__main__":
+    main()
