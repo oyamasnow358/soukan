@@ -1,247 +1,243 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-import os
-import matplotlib.font_manager as fm
-from scipy import stats # p値の計算に必要
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
+from scipy import stats
+import statsmodels.api as sm
 
 # --- 1. 初期設定 ---
-
-# Streamlitページの基本設定
 st.set_page_config(
-    page_title="相関分析 Webアプリ",
-    page_icon="🔗",
+    page_title="因果・相関分析マスター",
+    page_icon="🔍",
     layout="wide"
 )
 
-# --- 2. フォント設定 ---
+# --- 2. 計算ロジック関数 ---
 
-def setup_japanese_font():
+def calculate_partial_correlation(df, x, y, covar):
     """
-    Matplotlib/Seabornで日本語を表示するためのフォントを設定します。
-    IPAexゴシックフォントファイル（ipaexg.ttf）が同じディレクトリにあることを想定しています。
+    偏相関係数を計算する関数
+    r_xy.z = (r_xy - r_xz * r_yz) / sqrt((1 - r_xz^2) * (1 - r_yz^2))
     """
-    font_path = "ipaexg.ttf"
-    
-    if os.path.exists(font_path):
-        fm.fontManager.addfont(font_path)
-        font_prop = fm.FontProperties(fname=font_path)
-        plt.rcParams['font.family'] = font_prop.get_name()
-        plt.rcParams['axes.unicode_minus'] = False
-        sns.set_theme(style='whitegrid', font=font_prop.get_name())
-    else:
-        st.sidebar.warning("⚠️ 日本語フォントファイル（ipaexg.ttf）が見つかりません。グラフが文字化けします。")
-
-# --- 3. UIコンポーネント関数 ---
-
-def show_app_explanation():
-    """初心者向けの相関分析の説明を表示する"""
-    with st.expander("🔍 相関分析とは？（クリックで表示）", expanded=False):
-        st.markdown("""
-        ### **相関分析って、なに？**
-        2つのデータの「関係の強さ」を調べる分析手法です。「片方が増えるともう片方も増える（または減る）」といった関係性を**相関係数**という-1から1の間の数値で表します。
+    try:
+        r_xy = df[x].corr(df[y])
+        r_xz = df[x].corr(df[covar])
+        r_yz = df[y].corr(df[covar])
         
-        #### 相関係数の見方
-        - **+1.0 に近い (正の相関)**: 片方が増えると、もう片方も増える傾向が強い。（例: `勉強時間`と`テストの点数`）
-        - **-1.0 に近い (負の相関)**: 片方が増えると、もう片方は減る傾向が強い。（例: `スマホの使用時間`と`睡眠時間`）
-        - **0 に近い (無相関)**: 2つのデータにほとんど関係がない。
-
-        #### p値 (有意確率) の見方
-        このアプリのヒートマップでは、相関係数にアスタリスク(`*`)が付くことがあります。
-        - `*` **p < 0.05**: この相関は「統計的に意味がある（有意である）」可能性が高いです。偶然そうなったとは考えにくい、ということです。
-        - `**` **p < 0.01**: この相関は「統計的に強く意味がある」可能性が非常に高いです。
-
-        #### 特別支援教育での活用例
-        - **得意・不得意の発見**: `視覚記憶`と`書字能力`の相関を調べ、支援の方向性を探る。
-        - **支援効果の検証**: `音読練習の時間`と`読字スコア`の分析をし、練習の効果を測る。
-        """)
+        numerator = r_xy - (r_xz * r_yz)
+        denominator = np.sqrt((1 - r_xz**2) * (1 - r_yz**2))
+        
+        if denominator == 0:
+            return np.nan
+        
+        p_corr = numerator / denominator
+        return p_corr, r_xy
+    except:
+        return np.nan, np.nan
 
 def create_csv_template():
-    """分析用のCSVテンプレートを作成し、ダウンロードボタンを設置する"""
-    st.markdown("#### 1. データを用意する")
+    """テンプレートCSVの生成"""
     template_df = pd.DataFrame({
-        '国語の点数': [80, 65, 92, 75, 58],
-        '算数の点数': [75, 70, 88, 78, 62],
-        '勉強時間(分)': [120, 90, 150, 100, 70],
-        '睡眠時間(時間)': [7.5, 8.0, 7.0, 7.2, 8.5]
+        '国語テスト': [80, 65, 92, 75, 58, 85, 70, 95, 60, 78],
+        '読書量(冊)': [5, 2, 8, 4, 1, 6, 3, 10, 1, 5],
+        '語彙力スコア': [60, 45, 70, 55, 40, 62, 50, 75, 38, 58],
+        'スマホ時間(分)': [60, 120, 30, 90, 150, 50, 100, 20, 160, 80]
     })
-    
-    csv_string = "# これは相関分析用のデータテンプレートです。\n# 自身のデータに書き換えてお使いください。\n" + template_df.to_csv(index=False, encoding='utf-8-sig')
-    
-    st.download_button(
-        label="📥 CSVテンプレートをダウンロード",
-        data=csv_string.encode('utf-8-sig'),
-        file_name="correlation_template.csv",
-        mime="text/csv",
-        help="分析に使用するデータ形式のサンプルです。"
-    )
+    return template_df.to_csv(index=False, encoding='utf-8-sig')
 
-# --- 4. 分析ロジック関数 ---
+# --- 3. UIコンポーネント ---
 
-### 修正箇所 ###
-# pearsonrの戻り値を確実にスカラに変換する処理を追加
-def run_correlation_analysis(df):
-    """相関分析を実行し、相関行列とp値行列を計算する"""
-    df_corr = pd.DataFrame(index=df.columns, columns=df.columns, dtype=float)
-    df_p_values = pd.DataFrame(index=df.columns, columns=df.columns, dtype=float)
-    
-    for col1 in df.columns:
-        for col2 in df.columns:
-            valid_data = df[[col1, col2]].dropna()
-            
-            if len(valid_data) < 3:
-                corr, p_value = np.nan, np.nan
-            else:
-                try:
-                    # pearsonrの計算
-                    corr, p_value = stats.pearsonr(valid_data[col1], valid_data[col2])
-                    
-                    # 戻り値が配列の場合に備え、スカラ値に変換する
-                    corr = float(corr)
-                    p_value = float(p_value)
-
-                except (ValueError, TypeError): # 計算不能なデータの場合
-                    corr, p_value = np.nan, np.nan
-            
-            df_corr.loc[col1, col2] = corr
-            df_p_values.loc[col1, col2] = p_value
-            
-    return df_corr, df_p_values
-
-# --- 5. 結果表示関数 ---
-
-def display_analysis_results(df_selected, corr_matrix, p_value_matrix):
-    """分析結果をタブ形式で表示する"""
-    st.header("🔗 相関分析の結果", divider="rainbow")
-
-    tab1, tab2, tab3, tab4 = st.tabs(["相関ヒートマップ", "散布図マトリックス", "相関の要約", "使用データ"])
-
-    # Tab1: 相関ヒートマップ
-    with tab1:
-        st.subheader("相関ヒートマップ (p値付き)")
-        
-        # applymapを推奨されるmapに変更
-        annot = corr_matrix.map('{:.2f}'.format).astype(str)
-        annot[(p_value_matrix < 0.05) & (p_value_matrix >= 0.01)] += '*'
-        annot[p_value_matrix < 0.01] += '**'
-        
-        fig, ax = plt.subplots(figsize=(max(8, len(df_selected.columns)), max(6, len(df_selected.columns))))
-        sns.heatmap(corr_matrix, annot=annot, fmt='s', cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
-        ax.set_title("相関ヒートマップ")
-        plt.xticks(rotation=45, ha='right')
-        plt.yticks(rotation=0)
-        st.pyplot(fig)
+def show_explanation():
+    with st.expander("📚 このアプリでできること（因果と相関の違い）"):
         st.markdown("""
-        - **色の意味**: 赤色が濃いほど「強い正の相関」、青色が濃いほど「強い負の相関」を示します。
-        - **記号の意味**: `*` はp値が0.05未満、`**` はp値が0.01未満であることを示し、統計的に意味のある相関である可能性が高いことを表します。
+        ### 1. 相関関係 (Correlation)
+        「片方が増えると、もう片方も増える/減る」という関係。
+        *   例：アイスクリームの売上と水難事故の数（両方とも夏に増えるだけで、直接の関係はないかも？）
+
+        ### 2. 疑似因果の検証 (Partial Correlation) 🔥 **New**
+        「第三の要因」の影響を取り除いても、関係が残るかを確認します。
+        *   例：「アイス」と「水難事故」の関係から「気温」の影響を取り除くと、関係は消えるはずです。これがわかると、より**因果関係**に近い推論ができます。
+        
+        ### 3. 影響度の予測 (Regression)
+        「Xを変化させたら、Yは具体的にどれくらい変わるか？」を数式にします。
         """)
 
-    # Tab2: 散布図マトリックス
-    with tab2:
-        st.subheader("散布図マトリックス")
-        if len(df_selected.columns) > 10:
-            st.warning("⚠️ 変数の数が10を超えているため、表示が遅くなる可能性があります。")
-        
-        with st.spinner("グラフを描画中..."):
-            # dropna()を追加して欠損値がある場合のKDEエラーを回避
-            fig = sns.pairplot(df_selected.dropna(), diag_kind='kde')
-            st.pyplot(fig)
-        st.info("各変数ペアの関係性を散布図で可視化したものです。右肩上がりの傾向なら正の相関、右肩下がりなら負の相関があると考えられます。")
-
-    # Tab3: 相関の要約
-    with tab3:
-        st.subheader("相関の強い組み合わせ")
-        
-        summary = corr_matrix.stack().reset_index()
-        summary.columns = ['変数1', '変数2', '相関係数']
-        summary = summary[summary['変数1'] != summary['変数2']].copy()
-        summary['pair_key'] = summary.apply(lambda row: tuple(sorted((row['変数1'], row['変数2']))), axis=1)
-        summary = summary.drop_duplicates(subset='pair_key')
-        summary['abs_corr'] = summary['相関係数'].abs()
-        summary = summary.sort_values(by='abs_corr', ascending=False).drop(columns=['pair_key', 'abs_corr'])
-        
-        st.dataframe(summary.style.format({'相関係数': '{:.3f}'})
-                                .background_gradient(cmap='coolwarm', subset=['相関係数'], vmin=-1, vmax=1),
-                     use_container_width=True,
-                     hide_index=True)
-
-    # Tab4: 使用データ
-    with tab4:
-        st.subheader("分析に使用したデータ")
-        st.dataframe(df_selected)
-
-# --- 6. メイン実行部 ---
+# --- 4. メイン処理 ---
 
 def main():
-    # 1. 初期設定
-    setup_japanese_font()
-
-    # 2. アプリのタイトルと説明
-    st.title("🔗 相関分析 Webアプリ")
-    st.write("アップロードしたデータの変数間の相関を、ヒートマップや散布図で分かりやすく可視化します。")
-    show_app_explanation()
-    st.markdown("---")
-
-    # 3. サイドバーの設定
-    with st.sidebar:
-        st.header("⚙️ 設定パネル")
-        create_csv_template()
-
-        st.markdown("#### 2. ファイルをアップロード")
-        uploaded_file = st.file_uploader(
-            "CSVファイルをここにドラッグ＆ドロップ",
-            type=["csv"],
-            help="ヘッダー行を含む数値データで構成されたCSVファイルを選択してください。"
-        )
+    st.title("🔍 因果・相関分析マスター Webアプリ")
+    st.markdown("データの**相関関係**だけでなく、第三の要因を考慮した**因果の可能性**を探求するためのツールです。")
     
-    # ファイルがアップロードされた後の処理
+    show_explanation()
+    
+    # --- サイドバー: データアップロード ---
+    with st.sidebar:
+        st.header("📂 データ入力")
+        
+        uploaded_file = st.file_uploader("CSVファイルをアップロード", type=["csv"])
+        
+        st.markdown("---")
+        st.markdown("##### テスト用データ")
+        csv_data = create_csv_template()
+        st.download_button(
+            label="📥 サンプルCSVをダウンロード",
+            data=csv_data,
+            file_name="sample_data.csv",
+            mime="text/csv"
+        )
+
+    # データの読み込み
     if uploaded_file:
         try:
-            df = pd.read_csv(uploaded_file, comment='#', encoding='utf-8-sig')
-            df_numeric = df.select_dtypes(include=np.number)
-            
-            if df_numeric.empty or len(df_numeric.columns) < 2:
-                st.error("❌ 2列以上の数値データが見つかりませんでした。分析には数値データが必要です。")
-                if 'analysis_results' in st.session_state:
-                    del st.session_state['analysis_results']
+            df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+        except:
+            try:
+                df = pd.read_csv(uploaded_file, encoding='shift-jis')
+            except:
+                st.error("CSVの読み込みに失敗しました。文字コードを確認してください。")
                 return
+    else:
+        # デモデータを使用
+        df = pd.read_csv(pd.compat.StringIO(create_csv_template()), encoding='utf-8-sig')
+        st.info("💡 現在はサンプルデータで動作しています。自身のデータを分析するには左側からCSVをアップロードしてください。")
 
-            st.success(f"✅ ファイル「{uploaded_file.name}」を読み込みました。数値型の {len(df_numeric.columns)} 変数が検出されました。")
+    # 数値データの抽出
+    df_numeric = df.select_dtypes(include=[np.number])
+    
+    if df_numeric.shape[1] < 2:
+        st.warning("⚠️ 数値データが2列以上あるCSVを使用してください。")
+        return
 
-            with st.sidebar:
-                st.markdown("#### 3. 分析対象の変数を選択")
-                default_vars = df_numeric.columns.tolist()
-                selected_vars = st.multiselect(
-                    "変数を選択（2つ以上）",
-                    options=df_numeric.columns.tolist(),
-                    default=default_vars
-                )
-                
-                run_button = st.button("分析を実行", type="primary", use_container_width=True)
+    # --- タブによる機能切り替え ---
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 相関マトリックス", 
+        "🕵️ 因果・交絡分析 (重要)", 
+        "📈 回帰・散布図詳細", 
+        "📋 データ一覧"
+    ])
 
-            if run_button:
-                if len(selected_vars) < 2:
-                    st.warning("⚠️ 分析するには、変数を2つ以上選択してください。")
-                else:
-                    df_selected = df_numeric[selected_vars]
-                    with st.spinner("相関を計算中..."):
-                        corr_matrix, p_value_matrix = run_correlation_analysis(df_selected)
-                        st.session_state['analysis_results'] = {
-                            "df_selected": df_selected,
-                            "corr_matrix": corr_matrix,
-                            "p_value_matrix": p_value_matrix
-                        }
+    # ==========================================
+    # Tab 1: 相関マトリックス (Plotly版)
+    # ==========================================
+    with tab1:
+        st.subheader("変数の全体的な関係性を把握する")
         
-        except Exception as e:
-            st.error(f"❌ ファイルの処理中にエラーが発生しました: {e}")
-            if 'analysis_results' in st.session_state:
-                del st.session_state['analysis_results']
+        corr_matrix = df_numeric.corr()
+        
+        # Plotly Heatmap
+        fig_corr = px.imshow(
+            corr_matrix,
+            text_auto=".2f",
+            aspect="auto",
+            color_continuous_scale="RdBu_r",
+            zmin=-1, zmax=1,
+            labels=dict(color="相関係数")
+        )
+        fig_corr.update_layout(title="相関ヒートマップ（インタラクティブ）", height=600)
+        st.plotly_chart(fig_corr, use_container_width=True)
+        
+        st.markdown("""
+        *   **赤色**: 正の相関（片方が増えるともう片方も増える）
+        *   **青色**: 負の相関（片方が増えるともう片方は減る）
+        """)
 
-    if 'analysis_results' in st.session_state:
-        results = st.session_state['analysis_results']
-        display_analysis_results(results['df_selected'], results['corr_matrix'], results['p_value_matrix'])
+    # ==========================================
+    # Tab 2: 因果・交絡分析 (偏相関) - 🌟 今回の目玉機能
+    # ==========================================
+    with tab2:
+        st.subheader("🕵️ その関係は「見せかけ」ではありませんか？")
+        st.markdown("ある2つの変数に関係があっても、それは**「第三の変数（交絡因子）」**の影響かもしれません。その影響を取り除いてみましょう。")
+
+        col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
+        
+        with col_cfg1:
+            target_x = st.selectbox("要因 (X)", df_numeric.columns, index=0)
+        with col_cfg2:
+            target_y = st.selectbox("結果 (Y)", df_numeric.columns, index=1)
+        with col_cfg3:
+            # XとY以外のカラムを候補にする
+            confounder_candidates = [c for c in df_numeric.columns if c not in [target_x, target_y]]
+            control_z = st.selectbox("第三の変数 (Z: 制御変数)", confounder_candidates)
+
+        if target_x and target_y and control_z:
+            p_corr, raw_corr = calculate_partial_correlation(df_numeric, target_x, target_y, control_z)
+            
+            st.markdown("### 分析結果")
+            
+            col_res1, col_res2, col_res3 = st.columns(3)
+            with col_res1:
+                st.metric("元の相関係数", f"{raw_corr:.3f}")
+            with col_res2:
+                st.metric(f"{control_z}の影響を除いた相関（偏相関）", f"{p_corr:.3f}", 
+                          delta=f"{p_corr - raw_corr:.3f}", delta_color="inverse")
+            with col_res3:
+                change_ratio = abs((raw_corr - p_corr) / raw_corr * 100) if raw_corr != 0 else 0
+                st.metric("関係性の変化率", f"{change_ratio:.1f}%")
+
+            # 解釈の自動生成
+            st.info(f"💡 **AI解釈アシスト**: \n\n"
+                    f"「{target_x}」と「{target_y}」の関係から、「{control_z}」の影響を取り除くと、"
+                    f"相関係数は **{raw_corr:.2f}** から **{p_corr:.2f}** に変化しました。")
+
+            if abs(p_corr) < 0.2 and abs(raw_corr) > 0.4:
+                st.error(f"⚠️ **注意**: 元の相関は「{control_z}」による**見せかけの相関（疑似相関）**である可能性が高いです。{target_x}が直接{target_y}に影響しているわけではないかもしれません。")
+            elif abs(p_corr - raw_corr) < 0.1:
+                st.success(f"✅ 「{control_z}」を考慮しても関係性はほとんど変わりません。{target_x}と{target_y}の直接的な結びつきは強い可能性があります。")
+            else:
+                st.warning(f"🤔 「{control_z}」が関係性の一部を説明しています。因果関係を考える際は{control_z}も考慮に入れる必要があります。")
+
+    # ==========================================
+    # Tab 3: 回帰・散布図詳細
+    # ==========================================
+    with tab3:
+        st.subheader("📈 データの分布と予測")
+        
+        col_sel1, col_sel2 = st.columns(2)
+        with col_sel1:
+            x_axis = st.selectbox("横軸 (原因?)", df_numeric.columns, index=0, key='scatter_x')
+        with col_sel2:
+            y_axis = st.selectbox("縦軸 (結果?)", df_numeric.columns, index=1, key='scatter_y')
+
+        # 散布図 with 回帰直線 (Plotly)
+        fig_scatter = px.scatter(
+            df, x=x_axis, y=y_axis, 
+            trendline="ols", 
+            trendline_color_override="red",
+            hover_data=df.columns
+        )
+        fig_scatter.update_layout(title=f"{x_axis} vs {y_axis}")
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+        # 回帰分析の詳細統計 (Statsmodels)
+        st.markdown("#### 📊 統計的な詳細（単回帰分析）")
+        
+        X = df_numeric[x_axis]
+        Y = df_numeric[y_axis]
+        X = sm.add_constant(X) # 定数項を追加
+        
+        model = sm.OLS(Y, X).fit()
+        
+        col_stat1, col_stat2, col_stat3 = st.columns(3)
+        with col_stat1:
+            st.metric("決定係数 (R2)", f"{model.rsquared:.3f}", help="1に近いほど、横軸のデータで縦軸のデータをうまく説明できています。")
+        with col_stat2:
+            st.metric("P値 (有意確率)", f"{model.pvalues[1]:.4f}", help="0.05未満なら、統計的に偶然とは言えない関係があります。")
+        with col_stat3:
+            coef = model.params[1]
+            st.metric("回帰係数 (傾き)", f"{coef:.3f}", help=f"{x_axis}が1増えると、{y_axis}が約{coef:.2f}変化すると予測されます。")
+
+        with st.expander("詳細な統計レポートを見る"):
+            st.text(model.summary())
+
+    # ==========================================
+    # Tab 4: データ一覧
+    # ==========================================
+    with tab4:
+        st.subheader("📋 生データ確認")
+        st.dataframe(df, use_container_width=True)
+        st.caption(f"行数: {df.shape[0]}, 列数: {df.shape[1]}")
 
 if __name__ == "__main__":
     main()
