@@ -3,9 +3,8 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import plotly.figure_factory as ff
-from scipy import stats
 import statsmodels.api as sm
+import io  # 修正: これを追加
 
 # --- 1. 初期設定 ---
 st.set_page_config(
@@ -19,18 +18,23 @@ st.set_page_config(
 def calculate_partial_correlation(df, x, y, covar):
     """
     偏相関係数を計算する関数
-    r_xy.z = (r_xy - r_xz * r_yz) / sqrt((1 - r_xz^2) * (1 - r_yz^2))
     """
     try:
-        r_xy = df[x].corr(df[y])
-        r_xz = df[x].corr(df[covar])
-        r_yz = df[y].corr(df[covar])
+        # 欠損値を除去して計算
+        temp_df = df[[x, y, covar]].dropna()
+        
+        if len(temp_df) < 3:
+            return np.nan, np.nan
+
+        r_xy = temp_df[x].corr(temp_df[y])
+        r_xz = temp_df[x].corr(temp_df[covar])
+        r_yz = temp_df[y].corr(temp_df[covar])
         
         numerator = r_xy - (r_xz * r_yz)
         denominator = np.sqrt((1 - r_xz**2) * (1 - r_yz**2))
         
         if denominator == 0:
-            return np.nan
+            return np.nan, np.nan
         
         p_corr = numerator / denominator
         return p_corr, r_xy
@@ -38,14 +42,15 @@ def calculate_partial_correlation(df, x, y, covar):
         return np.nan, np.nan
 
 def create_csv_template():
-    """テンプレートCSVの生成"""
+    """テンプレートCSVの生成（文字列として返す）"""
     template_df = pd.DataFrame({
         '国語テスト': [80, 65, 92, 75, 58, 85, 70, 95, 60, 78],
         '読書量(冊)': [5, 2, 8, 4, 1, 6, 3, 10, 1, 5],
         '語彙力スコア': [60, 45, 70, 55, 40, 62, 50, 75, 38, 58],
         'スマホ時間(分)': [60, 120, 30, 90, 150, 50, 100, 20, 160, 80]
     })
-    return template_df.to_csv(index=False, encoding='utf-8-sig')
+    # encoding引数を削除（文字列返しでは不要なため）
+    return template_df.to_csv(index=False)
 
 # --- 3. UIコンポーネント ---
 
@@ -80,10 +85,11 @@ def main():
         
         st.markdown("---")
         st.markdown("##### テスト用データ")
-        csv_data = create_csv_template()
+        # ダウンロードボタン用にはバイト列に変換が必要
+        csv_text = create_csv_template()
         st.download_button(
             label="📥 サンプルCSVをダウンロード",
-            data=csv_data,
+            data=csv_text.encode('utf-8-sig'),
             file_name="sample_data.csv",
             mime="text/csv"
         )
@@ -99,8 +105,8 @@ def main():
                 st.error("CSVの読み込みに失敗しました。文字コードを確認してください。")
                 return
     else:
-        # デモデータを使用
-        df = pd.read_csv(pd.compat.StringIO(create_csv_template()), encoding='utf-8-sig')
+        # デモデータを使用（修正箇所: io.StringIOを使用）
+        df = pd.read_csv(io.StringIO(create_csv_template()))
         st.info("💡 現在はサンプルデータで動作しています。自身のデータを分析するには左側からCSVをアップロードしてください。")
 
     # 数値データの抽出
@@ -108,6 +114,7 @@ def main():
     
     if df_numeric.shape[1] < 2:
         st.warning("⚠️ 数値データが2列以上あるCSVを使用してください。")
+        st.dataframe(df.head()) # どんなデータか確認用に表示
         return
 
     # --- タブによる機能切り替え ---
@@ -144,49 +151,61 @@ def main():
         """)
 
     # ==========================================
-    # Tab 2: 因果・交絡分析 (偏相関) - 🌟 今回の目玉機能
+    # Tab 2: 因果・交絡分析 (偏相関)
     # ==========================================
     with tab2:
         st.subheader("🕵️ その関係は「見せかけ」ではありませんか？")
-        st.markdown("ある2つの変数に関係があっても、それは**「第三の変数（交絡因子）」**の影響かもしれません。その影響を取り除いてみましょう。")
+        st.markdown("ある2つの変数に関係があっても、それは**「第三の変数（交絡因子）」**の影響かもしれません。")
 
         col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
         
-        with col_cfg1:
-            target_x = st.selectbox("要因 (X)", df_numeric.columns, index=0)
-        with col_cfg2:
-            target_y = st.selectbox("結果 (Y)", df_numeric.columns, index=1)
-        with col_cfg3:
-            # XとY以外のカラムを候補にする
-            confounder_candidates = [c for c in df_numeric.columns if c not in [target_x, target_y]]
-            control_z = st.selectbox("第三の変数 (Z: 制御変数)", confounder_candidates)
+        # カラム選択肢がある場合のみ表示
+        if len(df_numeric.columns) >= 3:
+            with col_cfg1:
+                target_x = st.selectbox("要因 (X)", df_numeric.columns, index=0)
+            with col_cfg2:
+                # indexが範囲外にならないよう調整
+                idx_y = 1 if len(df_numeric.columns) > 1 else 0
+                target_y = st.selectbox("結果 (Y)", df_numeric.columns, index=idx_y)
+            with col_cfg3:
+                # XとY以外のカラムを候補にする
+                confounder_candidates = [c for c in df_numeric.columns if c not in [target_x, target_y]]
+                if confounder_candidates:
+                    control_z = st.selectbox("第三の変数 (Z: 制御変数)", confounder_candidates)
+                else:
+                    control_z = None
+                    st.warning("第三の変数として選べる列がありません")
 
-        if target_x and target_y and control_z:
-            p_corr, raw_corr = calculate_partial_correlation(df_numeric, target_x, target_y, control_z)
-            
-            st.markdown("### 分析結果")
-            
-            col_res1, col_res2, col_res3 = st.columns(3)
-            with col_res1:
-                st.metric("元の相関係数", f"{raw_corr:.3f}")
-            with col_res2:
-                st.metric(f"{control_z}の影響を除いた相関（偏相関）", f"{p_corr:.3f}", 
-                          delta=f"{p_corr - raw_corr:.3f}", delta_color="inverse")
-            with col_res3:
-                change_ratio = abs((raw_corr - p_corr) / raw_corr * 100) if raw_corr != 0 else 0
-                st.metric("関係性の変化率", f"{change_ratio:.1f}%")
+            if target_x and target_y and control_z:
+                p_corr, raw_corr = calculate_partial_correlation(df_numeric, target_x, target_y, control_z)
+                
+                if np.isnan(p_corr):
+                    st.error("計算エラー: データ数が少なすぎるか、分散が0のため計算できませんでした。")
+                else:
+                    st.markdown("### 分析結果")
+                    
+                    col_res1, col_res2, col_res3 = st.columns(3)
+                    with col_res1:
+                        st.metric("元の相関係数", f"{raw_corr:.3f}")
+                    with col_res2:
+                        st.metric(f"{control_z}の影響を除いた相関", f"{p_corr:.3f}", 
+                                  delta=f"{p_corr - raw_corr:.3f}", delta_color="inverse")
+                    with col_res3:
+                        change_ratio = abs((raw_corr - p_corr) / raw_corr * 100) if raw_corr != 0 else 0
+                        st.metric("関係性の変化率", f"{change_ratio:.1f}%")
 
-            # 解釈の自動生成
-            st.info(f"💡 **AI解釈アシスト**: \n\n"
-                    f"「{target_x}」と「{target_y}」の関係から、「{control_z}」の影響を取り除くと、"
-                    f"相関係数は **{raw_corr:.2f}** から **{p_corr:.2f}** に変化しました。")
+                    st.info(f"💡 **AI解釈アシスト**: \n\n"
+                            f"「{target_x}」と「{target_y}」の関係から、「{control_z}」の影響を取り除くと、"
+                            f"相関係数は **{raw_corr:.2f}** から **{p_corr:.2f}** に変化しました。")
 
-            if abs(p_corr) < 0.2 and abs(raw_corr) > 0.4:
-                st.error(f"⚠️ **注意**: 元の相関は「{control_z}」による**見せかけの相関（疑似相関）**である可能性が高いです。{target_x}が直接{target_y}に影響しているわけではないかもしれません。")
-            elif abs(p_corr - raw_corr) < 0.1:
-                st.success(f"✅ 「{control_z}」を考慮しても関係性はほとんど変わりません。{target_x}と{target_y}の直接的な結びつきは強い可能性があります。")
-            else:
-                st.warning(f"🤔 「{control_z}」が関係性の一部を説明しています。因果関係を考える際は{control_z}も考慮に入れる必要があります。")
+                    if abs(p_corr) < 0.2 and abs(raw_corr) > 0.4:
+                        st.error(f"⚠️ **注意**: 元の相関は「{control_z}」による**見せかけの相関**である可能性が高いです。")
+                    elif abs(p_corr - raw_corr) < 0.1:
+                        st.success(f"✅ 「{control_z}」を考慮しても関係性はほとんど変わりません。直接的な結びつきの可能性があります。")
+                    else:
+                        st.warning(f"🤔 「{control_z}」が関係性の一部を説明しています。")
+        else:
+            st.warning("⚠️ 偏相関分析を行うには、少なくとも3つの数値変数列が必要です。")
 
     # ==========================================
     # Tab 3: 回帰・散布図詳細
@@ -198,38 +217,48 @@ def main():
         with col_sel1:
             x_axis = st.selectbox("横軸 (原因?)", df_numeric.columns, index=0, key='scatter_x')
         with col_sel2:
-            y_axis = st.selectbox("縦軸 (結果?)", df_numeric.columns, index=1, key='scatter_y')
+            idx_y_sc = 1 if len(df_numeric.columns) > 1 else 0
+            y_axis = st.selectbox("縦軸 (結果?)", df_numeric.columns, index=idx_y_sc, key='scatter_y')
 
         # 散布図 with 回帰直線 (Plotly)
-        fig_scatter = px.scatter(
-            df, x=x_axis, y=y_axis, 
-            trendline="ols", 
-            trendline_color_override="red",
-            hover_data=df.columns
-        )
-        fig_scatter.update_layout(title=f"{x_axis} vs {y_axis}")
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        # 欠損値があるとエラーになることがあるためdropna
+        plot_df = df.dropna(subset=[x_axis, y_axis])
+        
+        if len(plot_df) > 0:
+            fig_scatter = px.scatter(
+                plot_df, x=x_axis, y=y_axis, 
+                trendline="ols", 
+                trendline_color_override="red",
+                hover_data=df.columns
+            )
+            fig_scatter.update_layout(title=f"{x_axis} vs {y_axis}")
+            st.plotly_chart(fig_scatter, use_container_width=True)
 
-        # 回帰分析の詳細統計 (Statsmodels)
-        st.markdown("#### 📊 統計的な詳細（単回帰分析）")
-        
-        X = df_numeric[x_axis]
-        Y = df_numeric[y_axis]
-        X = sm.add_constant(X) # 定数項を追加
-        
-        model = sm.OLS(Y, X).fit()
-        
-        col_stat1, col_stat2, col_stat3 = st.columns(3)
-        with col_stat1:
-            st.metric("決定係数 (R2)", f"{model.rsquared:.3f}", help="1に近いほど、横軸のデータで縦軸のデータをうまく説明できています。")
-        with col_stat2:
-            st.metric("P値 (有意確率)", f"{model.pvalues[1]:.4f}", help="0.05未満なら、統計的に偶然とは言えない関係があります。")
-        with col_stat3:
-            coef = model.params[1]
-            st.metric("回帰係数 (傾き)", f"{coef:.3f}", help=f"{x_axis}が1増えると、{y_axis}が約{coef:.2f}変化すると予測されます。")
+            # 回帰分析の詳細統計
+            st.markdown("#### 📊 統計的な詳細（単回帰分析）")
+            
+            try:
+                X = plot_df[x_axis]
+                Y = plot_df[y_axis]
+                X = sm.add_constant(X) # 定数項を追加
+                
+                model = sm.OLS(Y, X).fit()
+                
+                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                with col_stat1:
+                    st.metric("決定係数 (R2)", f"{model.rsquared:.3f}")
+                with col_stat2:
+                    st.metric("P値 (有意確率)", f"{model.pvalues.iloc[1]:.4f}")
+                with col_stat3:
+                    coef = model.params.iloc[1]
+                    st.metric("回帰係数 (傾き)", f"{coef:.3f}")
 
-        with st.expander("詳細な統計レポートを見る"):
-            st.text(model.summary())
+                with st.expander("詳細な統計レポートを見る"):
+                    st.text(model.summary())
+            except Exception as e:
+                st.error(f"回帰分析の計算中にエラーが発生しました: {e}")
+        else:
+            st.warning("有効なデータがありません。")
 
     # ==========================================
     # Tab 4: データ一覧
@@ -237,7 +266,6 @@ def main():
     with tab4:
         st.subheader("📋 生データ確認")
         st.dataframe(df, use_container_width=True)
-        st.caption(f"行数: {df.shape[0]}, 列数: {df.shape[1]}")
 
 if __name__ == "__main__":
     main()
